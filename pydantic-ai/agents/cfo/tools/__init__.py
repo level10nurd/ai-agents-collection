@@ -21,7 +21,16 @@ from agents.cfo.tools.mcp_client import (
     MCPAuthenticationError,
 )
 
+# Forecasting exports
+from agents.cfo.tools.forecasting import (
+    forecast_sales_prophet,
+    calculate_forecast_accuracy,
+    ForecastingError,
+    InsufficientDataError,
+)
+
 __all__ = [
+    # MCP Client
     "store_analysis_context",
     "retrieve_related_analyses",
     "save_forecast_for_comparison",
@@ -29,4 +38,9 @@ __all__ = [
     "MCPClientError",
     "MCPConnectionError",
     "MCPAuthenticationError",
+    # Forecasting
+    "forecast_sales_prophet",
+    "calculate_forecast_accuracy",
+    "ForecastingError",
+    "InsufficientDataError",
 ]
