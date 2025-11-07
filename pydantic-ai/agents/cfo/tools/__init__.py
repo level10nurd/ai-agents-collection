@@ -30,6 +30,15 @@ from agents.cfo.tools.benchmarks import (
 
 __all__ = [
     # MCP client
+# Visualization exports
+from agents.cfo.tools.visualization import (
+    create_cash_forecast_chart,
+    create_sales_forecast_chart,
+    create_unit_economics_dashboard,
+)
+
+__all__ = [
+    # MCP Client
     "store_analysis_context",
     "retrieve_related_analyses",
     "save_forecast_for_comparison",
@@ -41,4 +50,8 @@ __all__ = [
     "validate_unit_economics",
     "validate_cash_position",
     "validate_growth_metrics",
+    # Visualization
+    "create_cash_forecast_chart",
+    "create_sales_forecast_chart",
+    "create_unit_economics_dashboard",
 ]
