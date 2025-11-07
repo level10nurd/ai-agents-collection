@@ -22,7 +22,7 @@ numpy>=1.24.0  # Numerical computing
 
 # API Integrations
 httpx>=0.24.0  # Async HTTP client for all APIs
-supabase-py>=2.0.0  # Official Supabase Python client
+supabase>=2.0.0  # Official Supabase Python client
 python-dotenv>=1.0.0  # Environment variable management
 
 # Data Visualization
