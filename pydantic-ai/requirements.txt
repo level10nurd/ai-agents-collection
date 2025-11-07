@@ -1,0 +1,53 @@
+# AI CFO System Dependencies
+# Python 3.10+
+
+# Core Pydantic AI
+pydantic-ai>=0.1.0
+pydantic>=2.0
+pydantic-settings>=2.0
+
+# LLM Providers
+openai>=1.0  # For OpenRouter compatibility
+anthropic>=0.40.0
+
+# Time Series Forecasting
+prophet>=1.1  # Facebook/Meta Prophet for extreme seasonality
+statsmodels>=0.14.0  # Alternative forecasting methods
+pmdarima>=2.0.0  # ARIMA with auto parameter selection
+
+# Financial Calculations
+numpy-financial>=1.0.0  # NPV, IRR, PMT calculations
+pandas>=2.0.0  # Data manipulation and analysis
+numpy>=1.24.0  # Numerical computing
+
+# API Integrations
+httpx>=0.24.0  # Async HTTP client for all APIs
+supabase-py>=2.0.0  # Official Supabase Python client
+python-dotenv>=1.0.0  # Environment variable management
+
+# Data Visualization
+matplotlib>=3.7.0  # Static charts
+plotly>=5.14.0  # Interactive charts
+seaborn>=0.12.0  # Statistical visualizations
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
+# Development Tools
+black>=23.7.0  # Code formatting
+mypy>=1.4.0  # Type checking
+ruff>=0.0.280  # Fast Python linter
+ipython>=8.14.0  # Enhanced Python shell
+
+# Optional: Additional integrations (uncomment as needed)
+# boto3>=1.28.0  # AWS SDK (for Amazon Seller Central)
+# google-cloud-storage>=2.10.0  # Google Cloud Storage
+# redis>=4.6.0  # Caching layer
+# celery>=5.3.0  # Async task queue
+
+# Note: Some integrations may require additional system dependencies:
+# - Prophet requires pystan (may need compilation)
+# - Some visualization libraries require system graphics libraries
