@@ -1,11 +1,34 @@
 # Financial API Integration Research
 
-## 1. QuickBooks Online API
+## IMPLEMENTATION DECISION: CSV Import Approach
+
+**Date**: 2025-11-07  
+**Decision**: Postpone QuickBooks Online API integration in favor of CSV import for General Ledger and Chart of Accounts data.
+
+**Rationale**:
+- Faster MVP delivery without OAuth 2.0 complexity
+- Avoids API rate limiting constraints during development
+- Allows focus on core AI CFO agent capabilities
+- General Ledger provides single source of truth for all financial statements
+- Easier to test with sample data
+
+**CSV Files Required**:
+1. **Chart of Accounts (COA)** - Maps account codes to categories
+2. **General Ledger (GL)** - All transactional data at granular level
+3. **Trial Balance (TB)** - Optional validation that debits = credits
+
+**Future**: QuickBooks API integration can be added later for automated data sync.
+
+---
+
+## 1. QuickBooks Online API (Future Enhancement)
 
 ### Official Documentation
 - **Official Docs**: https://developer.intuit.com/app/developer/qbo/docs/develop
 - **API Reference**: https://developer.intuit.com/app/developer/qbo/docs/api/accounting/all-entities/profitandloss
 - **OAuth 2.0 Guide**: https://developer.intuit.com/app/developer/qbo/docs/develop/authentication-and-authorization/faq
+
+**Note**: API integration postponed in favor of CSV import approach. See decision above.
 
 ### Python SDK
 - **Library Name**: `python-quickbooks`
@@ -170,15 +193,19 @@ asset_accounts = Account.query(
 - **Invoice Examples**: https://github.com/ej2/python-quickbooks/blob/master/tests/integration/test_invoice.py
 
 ### Recommended for PRPs/ai_docs/
-**YES** - Highly recommended for the following reasons:
-1. Well-documented official API with comprehensive Python SDK
-2. Critical for CFO system (P&L, balance sheet, cash flow reports)
-3. Established OAuth 2.0 pattern that's industry standard
-4. Active community support and maintained libraries
-5. Rich financial data endpoints essential for AI CFO analysis
-6. Good code examples available for reference implementation
+**POSTPONED** - QuickBooks API integration has been postponed in favor of CSV import approach.
 
-**Documentation to Save:**
+**Current Implementation**: CSV Import for General Ledger and Chart of Accounts
+- See `agents/cfo/tools/csv_import.py` for implementation
+- See `agents/cfo/models/ledger.py` for data models
+- See `tests/cfo/test_tools/test_csv_import.py` for tests
+
+**Future Enhancement**: QuickBooks API integration can be added later for:
+1. Automated data synchronization
+2. Real-time financial data access
+3. Direct integration without manual CSV export
+
+**Documentation to Save for Future**:
 - OAuth 2.0 authentication flow patterns
 - Financial report endpoint specifications
 - Rate limiting strategies and implementation
