@@ -30,6 +30,20 @@ from agents.cfo.tools.csv_import import (
     validate_gl_against_coa,
     validate_tb_against_coa,
     CSVImportError,
+# Benchmark validation exports
+from agents.cfo.tools.benchmarks import (
+    validate_unit_economics,
+    validate_cash_position,
+    validate_growth_metrics,
+)
+
+__all__ = [
+    # MCP client
+# Visualization exports
+from agents.cfo.tools.visualization import (
+    create_cash_forecast_chart,
+    create_sales_forecast_chart,
+    create_unit_economics_dashboard,
 )
 
 __all__ = [
@@ -48,4 +62,12 @@ __all__ = [
     "validate_gl_against_coa",
     "validate_tb_against_coa",
     "CSVImportError",
+    # Benchmark validation
+    "validate_unit_economics",
+    "validate_cash_position",
+    "validate_growth_metrics",
+    # Visualization
+    "create_cash_forecast_chart",
+    "create_sales_forecast_chart",
+    "create_unit_economics_dashboard",
 ]
