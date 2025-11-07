@@ -7,4 +7,26 @@ Pure tool functions for CFO agents:
 - Forecasting tools (Prophet-based sales forecasting)
 - Benchmark validation
 - Data visualization
+- MCP client (Supabase-based knowledge graph for context storage and RAG)
 """
+
+# MCP Client exports
+from agents.cfo.tools.mcp_client import (
+    store_analysis_context,
+    retrieve_related_analyses,
+    save_forecast_for_comparison,
+    check_connection,
+    MCPClientError,
+    MCPConnectionError,
+    MCPAuthenticationError,
+)
+
+__all__ = [
+    "store_analysis_context",
+    "retrieve_related_analyses",
+    "save_forecast_for_comparison",
+    "check_connection",
+    "MCPClientError",
+    "MCPConnectionError",
+    "MCPAuthenticationError",
+]
