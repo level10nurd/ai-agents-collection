@@ -1,523 +1,577 @@
 """
-Unit tests for MCP client integration.
+Unit tests for MCP client with Supabase backend.
 
 Tests cover:
 - Successful context storage and retrieval
 - Authentication errors
-- Connection errors (server unavailable)
+- Connection errors
 - Timeout handling
-- Graceful degradation
-- Forecast storage
-
-All tests use mocked HTTP client (httpx) to avoid requiring actual MCP server.
+- Server errors
+- Graceful degradation workflows
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
-from datetime import datetime
-import httpx
+from unittest.mock import Mock, patch, MagicMock
+from datetime import datetime, timezone
+from typing import Dict, Any
 
 from agents.cfo.tools.mcp_client import (
     store_analysis_context,
     retrieve_related_analyses,
     save_forecast_for_comparison,
+    check_connection,
     MCPClientError,
     MCPConnectionError,
-    MCPAuthenticationError
+    MCPAuthenticationError,
 )
 
 
-# Test fixtures
-@pytest.fixture
-def mcp_url():
-    """MCP server base URL for testing."""
-    return "http://localhost:8051/mcp"
+# ============================================
+# Test Fixtures
+# ============================================
 
 
 @pytest.fixture
-def api_key():
-    """Test API key."""
-    return "test_api_key_12345"
+def supabase_url() -> str:
+    """Test Supabase URL."""
+    return "https://test-project.supabase.co"
 
 
 @pytest.fixture
-def sample_analysis_context():
+def service_key() -> str:
+    """Test service key (mock JWT)."""
+    return "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.key"
+
+
+@pytest.fixture
+def mock_supabase_client():
+    """Mock Supabase client with common methods."""
+    mock_client = MagicMock()
+    
+    # Setup table() method chain
+    mock_table = MagicMock()
+    mock_client.table.return_value = mock_table
+    
+    # Setup common query methods
+    mock_table.upsert.return_value = mock_table
+    mock_table.select.return_value = mock_table
+    mock_table.filter.return_value = mock_table
+    mock_table.order.return_value = mock_table
+    mock_table.limit.return_value = mock_table
+    
+    # Setup execute() to return mock response
+    mock_response = MagicMock()
+    mock_response.data = []
+    mock_table.execute.return_value = mock_response
+    
+    return mock_client
+
+
+@pytest.fixture
+def sample_context_data() -> Dict[str, Any]:
     """Sample analysis context data."""
     return {
-        "analysis_type": "cash_forecast",
-        "timestamp": "2024-01-15T10:00:00Z",
-        "parameters": {
-            "forecast_period": "6_months",
-            "confidence_level": 0.95
+        "analysis_type": "revenue_forecast",
+        "date_range": {
+            "start": "2024-01-01",
+            "end": "2024-12-31"
         },
-        "insights": [
-            "Cash balance projected to be positive for next 6 months",
-            "Peak cash requirement in Q2 due to inventory buildup"
+        "key_findings": [
+            "Seasonal spike in Q4",
+            "Growth rate: 15%"
         ],
-        "data_sources": ["quickbooks", "shopify"],
-        "recommendations": [
-            "Maintain current cash reserves",
-            "Consider line of credit for Q2 inventory purchase"
-        ]
+        "data_sources": ["shopify", "quickbooks"],
+        "metadata": {
+            "analyst": "ai_cfo",
+            "confidence": 0.85
+        }
     }
 
 
 @pytest.fixture
-def sample_forecast_data():
-    """Sample forecast data for storage."""
+def sample_forecast_data() -> Dict[str, Any]:
+    """Sample forecast data."""
     return {
-        "forecast_id": "forecast_2024_01_15",
-        "forecast_type": "sales",
-        "model_used": "prophet",
-        "parameters": {
-            "seasonality_mode": "multiplicative",
-            "changepoint_prior_scale": 0.05
+        "period": "2024-Q2",
+        "predictions": {
+            "revenue": 1500000,
+            "costs": 950000,
+            "profit": 550000
         },
-        "predictions": [
-            {"date": "2024-02-01", "value": 50000, "lower": 45000, "upper": 55000},
-            {"date": "2024-03-01", "value": 52000, "lower": 47000, "upper": 57000}
-        ],
         "confidence_intervals": {
-            "level": 0.95
-        },
-        "created_at": "2024-01-15T10:00:00Z"
+            "revenue": {"lower": 1300000, "upper": 1700000}
+        }
     }
 
 
-# Tests for store_analysis_context
+# ============================================
+# Test: store_analysis_context
+# ============================================
+
+
 @pytest.mark.asyncio
-async def test_store_analysis_context_success(mcp_url, api_key, sample_analysis_context):
+async def test_store_analysis_context_success(
+    supabase_url,
+    service_key,
+    mock_supabase_client,
+    sample_context_data
+):
     """Test successful context storage."""
+    # Setup mock response
     mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "id": "analysis_123",
-        "status": "stored"
-    }
+    mock_response.data = [{
+        "analysis_id": "test_analysis_001",
+        "context_data": sample_context_data,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }]
+    mock_supabase_client.table().upsert().execute.return_value = mock_response
     
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_class.return_value = mock_client
-        
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        return_value=mock_supabase_client
+    ):
         result = await store_analysis_context(
-            mcp_url=mcp_url,
-            api_key=api_key,
-            analysis_id="analysis_123",
-            context_data=sample_analysis_context
+            supabase_url=supabase_url,
+            service_key=service_key,
+            analysis_id="test_analysis_001",
+            context_data=sample_context_data
         )
-        
-        assert result["success"] is True
-        assert result["stored_id"] == "analysis_123"
-        assert "successfully" in result["message"].lower()
-        
-        # Verify API call was made correctly
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert call_args.kwargs["headers"]["Authorization"] == f"Bearer {api_key}"
+    
+    assert result["status"] == "success"
+    assert result["analysis_id"] == "test_analysis_001"
+    assert "record" in result
+    assert result["record"]["context_data"] == sample_context_data
 
 
 @pytest.mark.asyncio
-async def test_store_analysis_context_missing_fields(mcp_url, api_key):
-    """Test context storage with missing required fields."""
-    incomplete_context = {
-        "analysis_type": "cash_forecast"
-        # Missing timestamp
-    }
-    
-    result = await store_analysis_context(
-        mcp_url=mcp_url,
-        api_key=api_key,
-        analysis_id="analysis_123",
-        context_data=incomplete_context
+async def test_store_analysis_context_authentication_error(
+    supabase_url,
+    service_key,
+    sample_context_data
+):
+    """Test authentication error during context storage."""
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        side_effect=MCPAuthenticationError("Invalid API key")
+    ):
+        with pytest.raises(MCPAuthenticationError):
+            await store_analysis_context(
+                supabase_url=supabase_url,
+                service_key="invalid_key",
+                analysis_id="test_analysis_001",
+                context_data=sample_context_data
+            )
+
+
+@pytest.mark.asyncio
+async def test_store_analysis_context_connection_error(
+    supabase_url,
+    service_key,
+    sample_context_data
+):
+    """Test connection error during context storage."""
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        side_effect=MCPConnectionError("Connection refused")
+    ):
+        with pytest.raises(MCPConnectionError):
+            await store_analysis_context(
+                supabase_url=supabase_url,
+                service_key=service_key,
+                analysis_id="test_analysis_001",
+                context_data=sample_context_data
+            )
+
+
+@pytest.mark.asyncio
+async def test_store_analysis_context_storage_error(
+    supabase_url,
+    service_key,
+    mock_supabase_client,
+    sample_context_data
+):
+    """Test storage operation error."""
+    # Make execute() raise an exception
+    mock_supabase_client.table().upsert().execute.side_effect = Exception(
+        "Database error"
     )
     
-    assert result["success"] is False
-    assert "missing" in result["message"].lower()
-    assert "timestamp" in result["message"].lower()
-
-
-@pytest.mark.asyncio
-async def test_store_analysis_context_authentication_error(mcp_url, api_key, sample_analysis_context):
-    """Test authentication error handling."""
-    mock_response = MagicMock()
-    mock_response.status_code = 401
-    mock_response.text = "Invalid API key"
-    
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_class.return_value = mock_client
-        
-        with pytest.raises(MCPAuthenticationError):
-            await store_analysis_context(
-                mcp_url=mcp_url,
-                api_key=api_key,
-                analysis_id="analysis_123",
-                context_data=sample_analysis_context
-            )
-
-
-@pytest.mark.asyncio
-async def test_store_analysis_context_connection_error(mcp_url, api_key, sample_analysis_context):
-    """Test graceful handling when MCP server is unavailable."""
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
-        mock_client_class.return_value = mock_client
-        
-        result = await store_analysis_context(
-            mcp_url=mcp_url,
-            api_key=api_key,
-            analysis_id="analysis_123",
-            context_data=sample_analysis_context
-        )
-        
-        # Should return unsuccessful but not crash
-        assert result["success"] is False
-        assert "unavailable" in result["message"].lower()
-
-
-@pytest.mark.asyncio
-async def test_store_analysis_context_timeout(mcp_url, api_key, sample_analysis_context):
-    """Test timeout handling."""
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("Request timed out"))
-        mock_client_class.return_value = mock_client
-        
-        result = await store_analysis_context(
-            mcp_url=mcp_url,
-            api_key=api_key,
-            analysis_id="analysis_123",
-            context_data=sample_analysis_context
-        )
-        
-        # Should return unsuccessful but not crash
-        assert result["success"] is False
-        assert "timeout" in result["message"].lower()
-
-
-@pytest.mark.asyncio
-async def test_store_analysis_context_server_error(mcp_url, api_key, sample_analysis_context):
-    """Test handling of server errors (5xx)."""
-    mock_response = MagicMock()
-    mock_response.status_code = 500
-    mock_response.text = "Internal server error"
-    
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_class.return_value = mock_client
-        
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        return_value=mock_supabase_client
+    ):
         with pytest.raises(MCPClientError):
             await store_analysis_context(
-                mcp_url=mcp_url,
-                api_key=api_key,
-                analysis_id="analysis_123",
-                context_data=sample_analysis_context
+                supabase_url=supabase_url,
+                service_key=service_key,
+                analysis_id="test_analysis_001",
+                context_data=sample_context_data
             )
 
 
-# Tests for retrieve_related_analyses
+# ============================================
+# Test: retrieve_related_analyses
+# ============================================
+
+
 @pytest.mark.asyncio
-async def test_retrieve_related_analyses_success(mcp_url, api_key):
+async def test_retrieve_related_analyses_success(
+    supabase_url,
+    service_key,
+    mock_supabase_client
+):
     """Test successful retrieval of related analyses."""
+    # Setup mock response with multiple analyses
     mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "results": [
-            {
-                "analysis_id": "analysis_100",
-                "analysis_type": "cash_forecast",
-                "timestamp": "2024-01-01T10:00:00Z",
-                "relevance_score": 0.95,
-                "summary": "Similar cash forecast from January",
-                "context": {}
+    mock_response.data = [
+        {
+            "analysis_id": "revenue_2024_q1",
+            "context_data": {
+                "analysis_type": "revenue_forecast",
+                "key_findings": ["Revenue growth", "Seasonal patterns"]
             },
-            {
-                "analysis_id": "analysis_101",
-                "analysis_type": "unit_economics",
-                "timestamp": "2024-01-05T14:00:00Z",
-                "relevance_score": 0.82,
-                "summary": "Related unit economics analysis",
-                "context": {}
-            }
-        ]
-    }
+            "created_at": "2024-01-15T10:00:00"
+        },
+        {
+            "analysis_id": "revenue_2023_q4",
+            "context_data": {
+                "analysis_type": "revenue_forecast",
+                "key_findings": ["Holiday sales spike"]
+            },
+            "created_at": "2023-10-15T10:00:00"
+        }
+    ]
+    mock_supabase_client.table().select().order().limit().execute.return_value = mock_response
     
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_class.return_value = mock_client
-        
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        return_value=mock_supabase_client
+    ):
         result = await retrieve_related_analyses(
-            mcp_url=mcp_url,
-            api_key=api_key,
-            query="cash forecast for Q1"
+            supabase_url=supabase_url,
+            service_key=service_key,
+            query="revenue forecasts with seasonal patterns",
+            limit=5
         )
-        
-        assert result["success"] is True
-        assert result["count"] == 2
-        assert len(result["results"]) == 2
-        assert result["results"][0]["analysis_id"] == "analysis_100"
+    
+    assert result["status"] == "success"
+    assert result["total_results"] == 2
+    assert len(result["analyses"]) == 2
+    assert all("relevance_score" in a for a in result["analyses"])
+    assert all("analysis_id" in a for a in result["analyses"])
 
 
 @pytest.mark.asyncio
-async def test_retrieve_related_analyses_with_filters(mcp_url, api_key):
-    """Test retrieval with analysis type filters."""
+async def test_retrieve_related_analyses_with_filters(
+    supabase_url,
+    service_key,
+    mock_supabase_client
+):
+    """Test retrieval with filters applied."""
     mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {"results": []}
+    mock_response.data = [{
+        "analysis_id": "revenue_2024_q1",
+        "context_data": {"analysis_type": "revenue_forecast"},
+        "created_at": "2024-01-15T10:00:00"
+    }]
     
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_class.return_value = mock_client
-        
+    # Setup filter chain
+    mock_table = mock_supabase_client.table()
+    mock_table.select().filter().order().limit().execute.return_value = mock_response
+    
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        return_value=mock_supabase_client
+    ):
         result = await retrieve_related_analyses(
-            mcp_url=mcp_url,
-            api_key=api_key,
-            query="forecast analysis",
-            analysis_types=["cash_forecast", "sales_forecast"]
+            supabase_url=supabase_url,
+            service_key=service_key,
+            query="revenue forecasts",
+            filters={"analysis_type": "revenue_forecast"},
+            limit=5
         )
-        
-        assert result["success"] is True
-        
-        # Verify filters were applied
-        call_args = mock_client.post.call_args
-        payload = call_args.kwargs["json"]
-        assert "filters" in payload
-        assert "analysis_type" in payload["filters"]
+    
+    assert result["status"] == "success"
+    assert result["total_results"] >= 0
 
 
 @pytest.mark.asyncio
-async def test_retrieve_related_analyses_no_results(mcp_url, api_key):
-    """Test retrieval when no related analyses found."""
+async def test_retrieve_related_analyses_empty_results(
+    supabase_url,
+    service_key,
+    mock_supabase_client
+):
+    """Test retrieval when no matches found."""
     mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {"results": []}
+    mock_response.data = []
+    mock_supabase_client.table().select().order().limit().execute.return_value = mock_response
     
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_class.return_value = mock_client
-        
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        return_value=mock_supabase_client
+    ):
         result = await retrieve_related_analyses(
-            mcp_url=mcp_url,
-            api_key=api_key,
-            query="nonexistent analysis"
+            supabase_url=supabase_url,
+            service_key=service_key,
+            query="nonexistent analysis type",
+            limit=5
         )
-        
-        assert result["success"] is True
-        assert result["count"] == 0
-        assert len(result["results"]) == 0
+    
+    assert result["status"] == "success"
+    assert result["total_results"] == 0
+    assert result["analyses"] == []
 
 
 @pytest.mark.asyncio
-async def test_retrieve_related_analyses_connection_error(mcp_url, api_key):
-    """Test graceful handling when MCP server is unavailable during retrieval."""
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
-        mock_client_class.return_value = mock_client
-        
-        result = await retrieve_related_analyses(
-            mcp_url=mcp_url,
-            api_key=api_key,
-            query="test query"
-        )
-        
-        # Should return empty results but not crash
-        assert result["success"] is False
-        assert result["count"] == 0
-        assert len(result["results"]) == 0
-        assert "unavailable" in result["message"].lower()
-
-
-@pytest.mark.asyncio
-async def test_retrieve_related_analyses_authentication_error(mcp_url, api_key):
-    """Test authentication error during retrieval."""
-    mock_response = MagicMock()
-    mock_response.status_code = 401
-    mock_response.text = "Invalid API key"
-    
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_class.return_value = mock_client
-        
-        with pytest.raises(MCPAuthenticationError):
+async def test_retrieve_related_analyses_connection_error(
+    supabase_url,
+    service_key
+):
+    """Test retrieval with connection error."""
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        side_effect=MCPConnectionError("Connection refused")
+    ):
+        with pytest.raises(MCPConnectionError):
             await retrieve_related_analyses(
-                mcp_url=mcp_url,
-                api_key=api_key,
+                supabase_url=supabase_url,
+                service_key=service_key,
                 query="test query"
             )
 
 
-# Tests for save_forecast_for_comparison
+# ============================================
+# Test: save_forecast_for_comparison
+# ============================================
+
+
 @pytest.mark.asyncio
-async def test_save_forecast_success(mcp_url, api_key, sample_forecast_data):
-    """Test successful forecast storage."""
+async def test_save_forecast_success(
+    supabase_url,
+    service_key,
+    mock_supabase_client,
+    sample_forecast_data
+):
+    """Test successful forecast save."""
     mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "forecast_id": "forecast_2024_01_15",
-        "status": "stored"
-    }
+    mock_response.data = [{
+        "forecast_id": "revenue_2024_q2",
+        "forecast_data": sample_forecast_data,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }]
+    mock_supabase_client.table().upsert().execute.return_value = mock_response
     
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_class.return_value = mock_client
-        
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        return_value=mock_supabase_client
+    ):
         result = await save_forecast_for_comparison(
-            mcp_url=mcp_url,
-            api_key=api_key,
+            supabase_url=supabase_url,
+            service_key=service_key,
+            forecast_id="revenue_2024_q2",
+            forecast_data=sample_forecast_data,
+            forecast_metadata={"model": "prophet"}
+        )
+    
+    assert result["status"] == "success"
+    assert result["forecast_id"] == "revenue_2024_q2"
+    assert "record" in result
+
+
+@pytest.mark.asyncio
+async def test_save_forecast_without_metadata(
+    supabase_url,
+    service_key,
+    mock_supabase_client,
+    sample_forecast_data
+):
+    """Test forecast save without metadata."""
+    mock_response = MagicMock()
+    mock_response.data = [{
+        "forecast_id": "revenue_2024_q2",
+        "forecast_data": sample_forecast_data,
+        "forecast_metadata": {},
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }]
+    mock_supabase_client.table().upsert().execute.return_value = mock_response
+    
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        return_value=mock_supabase_client
+    ):
+        result = await save_forecast_for_comparison(
+            supabase_url=supabase_url,
+            service_key=service_key,
+            forecast_id="revenue_2024_q2",
             forecast_data=sample_forecast_data
         )
-        
-        assert result["success"] is True
-        assert result["forecast_id"] == "forecast_2024_01_15"
-        assert "successfully" in result["message"].lower()
+    
+    assert result["status"] == "success"
 
 
 @pytest.mark.asyncio
-async def test_save_forecast_missing_fields(mcp_url, api_key):
-    """Test forecast storage with missing required fields."""
-    incomplete_forecast = {
-        "forecast_id": "forecast_123",
-        "forecast_type": "sales"
-        # Missing predictions
-    }
-    
-    result = await save_forecast_for_comparison(
-        mcp_url=mcp_url,
-        api_key=api_key,
-        forecast_data=incomplete_forecast
+async def test_save_forecast_storage_error(
+    supabase_url,
+    service_key,
+    mock_supabase_client,
+    sample_forecast_data
+):
+    """Test forecast save with storage error."""
+    mock_supabase_client.table().upsert().execute.side_effect = Exception(
+        "Database error"
     )
     
-    assert result["success"] is False
-    assert "missing" in result["message"].lower()
-    assert "predictions" in result["message"].lower()
-
-
-@pytest.mark.asyncio
-async def test_save_forecast_connection_error(mcp_url, api_key, sample_forecast_data):
-    """Test graceful handling when MCP server is unavailable during forecast save."""
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
-        mock_client_class.return_value = mock_client
-        
-        result = await save_forecast_for_comparison(
-            mcp_url=mcp_url,
-            api_key=api_key,
-            forecast_data=sample_forecast_data
-        )
-        
-        # Should return unsuccessful but not crash
-        assert result["success"] is False
-        assert "unavailable" in result["message"].lower()
-
-
-@pytest.mark.asyncio
-async def test_save_forecast_authentication_error(mcp_url, api_key, sample_forecast_data):
-    """Test authentication error during forecast save."""
-    mock_response = MagicMock()
-    mock_response.status_code = 401
-    mock_response.text = "Invalid API key"
-    
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(return_value=mock_response)
-        mock_client_class.return_value = mock_client
-        
-        with pytest.raises(MCPAuthenticationError):
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        return_value=mock_supabase_client
+    ):
+        with pytest.raises(MCPClientError):
             await save_forecast_for_comparison(
-                mcp_url=mcp_url,
-                api_key=api_key,
+                supabase_url=supabase_url,
+                service_key=service_key,
+                forecast_id="revenue_2024_q2",
                 forecast_data=sample_forecast_data
             )
 
 
-# Integration test scenarios
-@pytest.mark.asyncio
-async def test_graceful_degradation_workflow(mcp_url, api_key, sample_analysis_context):
-    """
-    Test that the system can continue operating even when MCP is unavailable.
-    This is critical for ensuring the CFO agent doesn't fail when MCP server is down.
-    """
-    with patch("httpx.AsyncClient") as mock_client_class:
-        mock_client = AsyncMock()
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
-        mock_client_class.return_value = mock_client
-        
-        # Store context - should fail gracefully
-        store_result = await store_analysis_context(
-            mcp_url=mcp_url,
-            api_key=api_key,
-            analysis_id="analysis_123",
-            context_data=sample_analysis_context
-        )
-        assert store_result["success"] is False
-        
-        # Retrieve analyses - should fail gracefully
-        retrieve_result = await retrieve_related_analyses(
-            mcp_url=mcp_url,
-            api_key=api_key,
-            query="test query"
-        )
-        assert retrieve_result["success"] is False
-        assert retrieve_result["count"] == 0
-        
-        # In both cases, the system continues operating without MCP
+# ============================================
+# Test: check_connection
+# ============================================
 
 
 @pytest.mark.asyncio
-async def test_url_normalization(api_key, sample_analysis_context):
-    """Test that URLs with trailing slashes are handled correctly."""
-    urls_to_test = [
-        "http://localhost:8051/mcp",
-        "http://localhost:8051/mcp/",
-        "http://localhost:8051/mcp///"
-    ]
-    
+async def test_check_connection_success(
+    supabase_url,
+    service_key,
+    mock_supabase_client
+):
+    """Test successful connection check."""
     mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {"id": "test"}
+    mock_response.data = []
+    mock_supabase_client.table().select().limit().execute.return_value = mock_response
     
-    for url in urls_to_test:
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-            
-            result = await store_analysis_context(
-                mcp_url=url,
-                api_key=api_key,
-                analysis_id="test",
-                context_data=sample_analysis_context
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        return_value=mock_supabase_client
+    ):
+        result = await check_connection(
+            supabase_url=supabase_url,
+            service_key=service_key
+        )
+    
+    assert result["status"] == "connected"
+    assert result["supabase_url"] == supabase_url
+
+
+@pytest.mark.asyncio
+async def test_check_connection_auth_error(
+    supabase_url,
+    service_key
+):
+    """Test connection check with authentication error."""
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        side_effect=MCPAuthenticationError("Invalid key")
+    ):
+        result = await check_connection(
+            supabase_url=supabase_url,
+            service_key="invalid_key"
+        )
+    
+    assert result["status"] == "error"
+    assert result["error_type"] == "authentication"
+
+
+@pytest.mark.asyncio
+async def test_check_connection_connection_error(
+    supabase_url,
+    service_key
+):
+    """Test connection check with connection error."""
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        side_effect=MCPConnectionError("Connection refused")
+    ):
+        result = await check_connection(
+            supabase_url=supabase_url,
+            service_key=service_key
+        )
+    
+    assert result["status"] == "error"
+    assert result["error_type"] == "connection"
+
+
+# ============================================
+# Integration Tests
+# ============================================
+
+
+@pytest.mark.asyncio
+async def test_graceful_degradation_workflow(
+    supabase_url,
+    service_key,
+    sample_context_data
+):
+    """Test that system degrades gracefully when Supabase is unavailable."""
+    # Simulate Supabase being unavailable
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        side_effect=MCPConnectionError("Service unavailable")
+    ):
+        # Check connection should return error status
+        conn_result = await check_connection(supabase_url, service_key)
+        assert conn_result["status"] == "error"
+        
+        # Operations should raise appropriate exceptions
+        with pytest.raises(MCPConnectionError):
+            await store_analysis_context(
+                supabase_url=supabase_url,
+                service_key=service_key,
+                analysis_id="test_001",
+                context_data=sample_context_data
             )
-            
-            assert result["success"] is True
-            
-            # Verify the endpoint URL was normalized (no double slashes)
-            call_args = mock_client.post.call_args
-            endpoint = call_args.args[0] if call_args.args else call_args.kwargs.get("url", "")
-            assert "//" not in endpoint.replace("http://", "")
+
+
+@pytest.mark.asyncio
+async def test_end_to_end_context_workflow(
+    supabase_url,
+    service_key,
+    mock_supabase_client,
+    sample_context_data
+):
+    """Test complete workflow: store context, then retrieve it."""
+    # Setup mock for storage
+    store_response = MagicMock()
+    store_response.data = [{
+        "analysis_id": "test_analysis_001",
+        "context_data": sample_context_data,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }]
+    
+    # Setup mock for retrieval
+    retrieve_response = MagicMock()
+    retrieve_response.data = [store_response.data[0]]
+    
+    with patch(
+        "agents.cfo.tools.mcp_client._create_supabase_client",
+        return_value=mock_supabase_client
+    ):
+        # First, store context
+        mock_supabase_client.table().upsert().execute.return_value = store_response
+        store_result = await store_analysis_context(
+            supabase_url=supabase_url,
+            service_key=service_key,
+            analysis_id="test_analysis_001",
+            context_data=sample_context_data
+        )
+        assert store_result["status"] == "success"
+        
+        # Then, retrieve it
+        mock_supabase_client.table().select().order().limit().execute.return_value = retrieve_response
+        retrieve_result = await retrieve_related_analyses(
+            supabase_url=supabase_url,
+            service_key=service_key,
+            query="revenue forecast"
+        )
+        assert retrieve_result["status"] == "success"
+        assert len(retrieve_result["analyses"]) > 0

@@ -11,7 +11,6 @@ Multi-agent AI CFO system for VoChill e-commerce providing:
 Architecture: Hierarchical Coordinator + Specialist Agents
 """
 
-# Coordinator will be imported when implemented
+# TODO: Uncomment when coordinator is implemented
 # from agents.cfo.coordinator import cfo_coordinator_agent
-
-__all__ = []
+# __all__ = ["cfo_coordinator_agent"]
