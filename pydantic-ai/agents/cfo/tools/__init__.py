@@ -21,7 +21,15 @@ from agents.cfo.tools.mcp_client import (
     MCPAuthenticationError,
 )
 
+# Benchmark validation exports
+from agents.cfo.tools.benchmarks import (
+    validate_unit_economics,
+    validate_cash_position,
+    validate_growth_metrics,
+)
+
 __all__ = [
+    # MCP client
     "store_analysis_context",
     "retrieve_related_analyses",
     "save_forecast_for_comparison",
@@ -29,4 +37,8 @@ __all__ = [
     "MCPClientError",
     "MCPConnectionError",
     "MCPAuthenticationError",
+    # Benchmark validation
+    "validate_unit_economics",
+    "validate_cash_position",
+    "validate_growth_metrics",
 ]
