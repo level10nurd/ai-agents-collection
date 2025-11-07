@@ -21,7 +21,16 @@ from agents.cfo.tools.mcp_client import (
     MCPAuthenticationError,
 )
 
+# Financial Calculation exports
+from agents.cfo.tools.financial_calcs import (
+    calculate_unit_economics,
+    calculate_13_week_cash_forecast,
+    calculate_runway,
+    calculate_npv,
+)
+
 __all__ = [
+    # MCP Client
     "store_analysis_context",
     "retrieve_related_analyses",
     "save_forecast_for_comparison",
@@ -29,4 +38,9 @@ __all__ = [
     "MCPClientError",
     "MCPConnectionError",
     "MCPAuthenticationError",
+    # Financial Calculations
+    "calculate_unit_economics",
+    "calculate_13_week_cash_forecast",
+    "calculate_runway",
+    "calculate_npv",
 ]
