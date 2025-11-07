@@ -22,6 +22,14 @@ from agents.cfo.tools.mcp_client import (
     MCPAuthenticationError,
 )
 
+# Financial Calculation exports
+from agents.cfo.tools.financial_calcs import (
+    calculate_unit_economics,
+    calculate_13_week_cash_forecast,
+    calculate_runway,
+    calculate_npv,
+)
+
 # CSV Import exports
 from agents.cfo.tools.csv_import import (
     parse_chart_of_accounts,
@@ -55,6 +63,11 @@ __all__ = [
     "MCPClientError",
     "MCPConnectionError",
     "MCPAuthenticationError",
+    # Financial Calculations
+    "calculate_unit_economics",
+    "calculate_13_week_cash_forecast",
+    "calculate_runway",
+    "calculate_npv",
     # CSV Import
     "parse_chart_of_accounts",
     "parse_general_ledger",
