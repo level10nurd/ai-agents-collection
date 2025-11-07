@@ -29,6 +29,13 @@ from agents.cfo.tools.financial_calcs import (
     calculate_npv,
 )
 
+# Visualization exports
+from agents.cfo.tools.visualization import (
+    create_cash_forecast_chart,
+    create_sales_forecast_chart,
+    create_unit_economics_dashboard,
+)
+
 __all__ = [
     # MCP Client
     "store_analysis_context",
@@ -43,4 +50,8 @@ __all__ = [
     "calculate_13_week_cash_forecast",
     "calculate_runway",
     "calculate_npv",
+    # Visualization
+    "create_cash_forecast_chart",
+    "create_sales_forecast_chart",
+    "create_unit_economics_dashboard",
 ]
