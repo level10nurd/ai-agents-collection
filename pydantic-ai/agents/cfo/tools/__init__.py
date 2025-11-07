@@ -21,7 +21,15 @@ from agents.cfo.tools.mcp_client import (
     MCPAuthenticationError,
 )
 
+# Visualization exports
+from agents.cfo.tools.visualization import (
+    create_cash_forecast_chart,
+    create_sales_forecast_chart,
+    create_unit_economics_dashboard,
+)
+
 __all__ = [
+    # MCP Client
     "store_analysis_context",
     "retrieve_related_analyses",
     "save_forecast_for_comparison",
@@ -29,4 +37,8 @@ __all__ = [
     "MCPClientError",
     "MCPConnectionError",
     "MCPAuthenticationError",
+    # Visualization
+    "create_cash_forecast_chart",
+    "create_sales_forecast_chart",
+    "create_unit_economics_dashboard",
 ]
